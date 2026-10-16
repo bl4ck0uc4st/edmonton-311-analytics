@@ -137,7 +137,7 @@ CHECKS: tuple[Check, ...] = (
         "Share of rows (%) without a neighbourhood (expected: mostly phone information calls)",
         "warning",
         "SELECT round(100.0 * count(*) FILTER (WHERE neighbourhood_key = -1) / count(*), 2) FROM gold.fact_service_request",
-        threshold=60.0,
+        threshold=70.0,
         unit="%",
     ),
     Check(
@@ -147,6 +147,18 @@ CHECKS: tuple[Check, ...] = (
         """
         SELECT round(100.0 * count(*) FILTER (WHERE d.service_area = 'Unclassified') / count(*), 3)
         FROM gold.fact_service_request f JOIN gold.dim_service d USING (service_key)
+        """,
+        threshold=1.0,
+        unit="%",
+    ),
+    Check(
+        "source_row_count_gap_pct",
+        "Gap (%) between the row count the API reported and the rows landed in bronze (full runs)",
+        "warning",
+        """
+        WITH b AS (SELECT CAST(value AS BIGINT) AS v FROM meta.build_info WHERE key = 'bronze_rows'),
+             s AS (SELECT try_cast(value AS BIGINT) AS v FROM meta.build_info WHERE key = 'source_row_count')
+        SELECT coalesce(round(100.0 * abs(s.v - b.v) / nullif(s.v, 0), 3), 0) FROM b, s
         """,
         threshold=1.0,
         unit="%",

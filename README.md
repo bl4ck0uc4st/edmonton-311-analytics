@@ -24,7 +24,7 @@ report defined as code (Power Query, DAX, TMDL).
 | Operations and SLA | Which business areas meet their response targets? | SLA attainment vs goal, resolution-time distribution, backlog ageing |
 | Neighbourhoods and Wards | Where do requests come from and what do they ask for? | Neighbourhood bubble map, ward comparison, drill-through detail |
 | Seasonality and Channels | When does demand arrive and how do residents contact the City? | Season x service heatmap, weekday x hour intake curve, mobile-app adoption |
-| Data Quality and Pipeline | Can this data be trusted today? | 20 automated checks, build metadata, freshness |
+| Data Quality and Pipeline | Can this data be trusted today? | 21 automated checks, build metadata, freshness |
 
 ## Live previews from the pipeline
 
@@ -52,7 +52,7 @@ flowchart LR
     A[("data.edmonton.ca<br/>311 Requests (SODA API)")] -->|monthly windows,<br/>paginated, retried| B["Bronze<br/>Parquet partitions<br/>year=/month=/"]
     B -->|"DuckDB SQL<br/>typed + de-duplicated"| C["Silver<br/>silver.requests"]
     C -->|"Kimball star schema"| D["Gold<br/>5 dimensions + 2 facts + 1 aggregate"]
-    D --> E["Data-quality gate<br/>20 checks, critical = stop"]
+    D --> E["Data-quality gate<br/>21 checks, critical = stop"]
     E -->|Parquet + CSV| F["GitHub Release<br/>data-latest"]
     F -->|"Web.Contents + Parquet.Document"| G["Power BI<br/>semantic model + report"]
     H["GitHub Actions<br/>weekly incremental, monthly full"] -.-> A
@@ -163,7 +163,7 @@ Then open Power BI Desktop and follow [`powerbi/README.md`](powerbi/README.md).
 | `yeg311 sample --rows N` | Generate realistic synthetic bronze partitions (same shape and quirks as the live data) |
 | `yeg311 extract --mode full\|incremental` | Download real data into monthly Parquet partitions (incremental = last 3 months) |
 | `yeg311 build` | Build silver and gold layers in `data/warehouse/yeg311.duckdb` |
-| `yeg311 quality` | Run the 20 data-quality checks; exit code 1 on a critical failure |
+| `yeg311 quality` | Run the 21 data-quality checks; exit code 1 on a critical failure |
 | `yeg311 export` | Write Parquet/CSV exports plus `metadata.json` for Power BI |
 | `yeg311 run` | All of the above in order (`--sample` to stay offline) |
 | `yeg311 stats` | Headline numbers for the README / a quick sanity check |
@@ -178,14 +178,14 @@ Then open Power BI Desktop and follow [`powerbi/README.md`](powerbi/README.md).
 | `no_negative_resolution`, `open_rows_without_close_timestamp` | critical | Timestamp logic after cleaning |
 | `backlog_snapshot_reconciles`, `agg_reconciles_to_fact` | critical | The three gold tables agree with each other |
 | `closed_before_created_pct`, `closed_without_timestamp_pct`, `open_with_close_timestamp_pct`, `unclassified_service_pct`, `missing_neighbourhood_pct` | warning | Anomaly rates stay within expected bands |
-| `known_status_values`, `freshness_days` | warning | Source drift and stale data |
+| `known_status_values`, `freshness_days`, `source_row_count_gap_pct` | warning | Source drift, stale data, and rows lost between the API and bronze |
 
 Results are stored in `meta.quality_results`, exported for the Power BI "Data Quality" page and surfaced in the
 GitHub Actions job summary.
 
 ## Automation
 
-* **CI** (`.github/workflows/ci.yml`): ruff lint/format, pytest (24 tests) on Python 3.11 and 3.12, a full pipeline
+* **CI** (`.github/workflows/ci.yml`): ruff lint/format, pytest (26 tests) on Python 3.11 and 3.12, a full pipeline
   smoke run on synthetic data, and a check that the generated Power BI assets match the model spec.
 * **Refresh data** (`.github/workflows/refresh-data.yml`): weekly incremental and monthly full extraction from the
   live API, warehouse rebuild, quality gate, then publication of the exports to the `data-latest` release and a

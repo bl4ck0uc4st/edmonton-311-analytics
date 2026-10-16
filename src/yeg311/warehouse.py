@@ -147,9 +147,14 @@ def build_warehouse(settings: Settings, as_of: datetime | None = None) -> dict:
         data_source = (
             "synthetic sample (yeg311 sample)" if dataset_id.startswith("SYNTHETIC") else "data.edmonton.ca"
         )
+        source_rows = None
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            source_rows = (manifest.get("source") or {}).get("row_count")
         summary = {
             "pipeline_version": PIPELINE_VERSION,
             "data_source": data_source,
+            "source_row_count": source_rows,
             "built_at_utc": finished.isoformat(timespec="seconds"),
             "build_seconds": round((finished - started).total_seconds(), 1),
             "as_of": as_of_ts,

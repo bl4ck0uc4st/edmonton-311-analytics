@@ -132,6 +132,28 @@ class SodaClient:
             raise SodaRequestError(f"Unexpected payload type {type(payload).__name__}")
         return payload
 
+    # -- source summary -----------------------------------------------------------------
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(6),
+        wait=wait_exponential(multiplier=1.5, min=2, max=60),
+        retry=retry_if_exception_type((SodaRequestError, requests.ConnectionError, requests.Timeout)),
+    )
+    def fetch_source_summary(self) -> dict[str, str | None]:
+        """Row count and creation-date range as the API reports them right now.
+
+        Used to (a) discover the real extent of the rolling window instead of assuming it and
+        (b) reconcile the number of rows we landed against the source after a full run.
+        """
+        params = {"$select": "count(*) AS n, min(date_created) AS min_dt, max(date_created) AS max_dt"}
+        resp = self.session.get(self.base_url, params=params, timeout=self.settings.request_timeout_s)
+        if resp.status_code == 429 or resp.status_code >= 500:
+            raise SodaRequestError(f"HTTP {resp.status_code} for source summary: {resp.text[:200]}")
+        resp.raise_for_status()
+        payload = resp.json()
+        row = payload[0] if isinstance(payload, list) and payload else {}
+        return {"n": row.get("n"), "min_dt": row.get("min_dt"), "max_dt": row.get("max_dt")}
+
     # -- whole month ----------------------------------------------------------------
     def iter_month(self, window: MonthWindow) -> Iterator[list[dict[str, str]]]:
         where = f"date_created >= '{window.start.isoformat()}' AND date_created < '{window.end.isoformat()}'"
@@ -206,17 +228,43 @@ def run_extract(
     """Extract either every month in the dataset window (``full``) or the lookback window."""
     today = today or date.today()
     client = client or SodaClient(settings)
+    manifest = load_manifest(settings.raw_dir)
+
+    source: dict[str, str | None] = {}
+    try:
+        source = client.fetch_source_summary()
+        log.info(
+            "Source reports %s rows, created %s .. %s",
+            source.get("n"),
+            source.get("min_dt"),
+            source.get("max_dt"),
+        )
+    except Exception as exc:  # the summary is a nice-to-have; never block extraction on it
+        log.warning("Could not read the source summary (%s); falling back to the assumed window", exc)
+
     if months is None:
         if mode == "full":
+            # Trust the API's own minimum creation date over the documented rolling window: the
+            # portal trims old years on its own schedule, so the real floor moves.
             start = dataset_floor(today)
+            if source.get("min_dt"):
+                start = min(start, date.fromisoformat(str(source["min_dt"])[:10]))
         elif mode == "incremental":
             start = shift_months(today, -(settings.lookback_months - 1))
-            start = max(start, dataset_floor(today))
         else:
             raise ValueError(f"unknown mode {mode!r}; expected 'full' or 'incremental'")
-        months = list(month_windows(start, today))
+        end = today
+        if source.get("max_dt"):
+            end = max(end, date.fromisoformat(str(source["max_dt"])[:10]))
+        months = list(month_windows(start, end))
 
-    manifest = load_manifest(settings.raw_dir)
+    if source:
+        manifest["source"] = {
+            "row_count": int(source["n"]) if source.get("n") else None,
+            "min_created": source.get("min_dt"),
+            "max_created": source.get("max_dt"),
+            "queried_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
     results: dict[str, int] = {}
     for window in months:
         log.info("Extracting %s ...", window.label)
@@ -228,4 +276,18 @@ def run_extract(
         }
         save_manifest(settings.raw_dir, manifest)
         log.info("Done %s: %s rows", window.label, f"{n:,}")
+
+    landed = sum(int(p["rows"]) for p in manifest["partitions"].values())
+    expected = (manifest.get("source") or {}).get("row_count")
+    if mode == "full" and expected:
+        gap = expected - landed
+        if abs(gap) > max(1000, expected * 0.005):
+            log.warning(
+                "Row count reconciliation: source reports %s rows but partitions hold %s (gap %s)",
+                f"{expected:,}",
+                f"{landed:,}",
+                f"{gap:+,}",
+            )
+        else:
+            log.info("Row count reconciliation OK: source %s vs landed %s", f"{expected:,}", f"{landed:,}")
     return results
