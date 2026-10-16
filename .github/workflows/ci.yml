@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Lint, test and pipeline smoke (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: |
+          ruff check src tests scripts
+          ruff format --check src tests scripts
+
+      - name: Unit and integration tests
+        run: pytest -q --cov=yeg311 --cov-report=term-missing
+
+      - name: Pipeline smoke run on synthetic data
+        run: |
+          yeg311 run --sample --rows 30000 --seed 42
+          yeg311 stats
+
+      - name: Generated Power BI assets are in sync with the model spec
+        run: |
+          python scripts/build_powerbi_assets.py
+          git diff --exit-code -- powerbi docs/data_dictionary.md
+
+      - name: Upload quality report and sample exports
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-run
+          path: |
+            data/warehouse/quality_report.json
+            data/exports/metadata.json
+            data/exports/*.csv
+          retention-days: 7

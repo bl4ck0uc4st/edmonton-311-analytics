@@ -1,0 +1,380 @@
+// Edmonton 311 Analytics - DAX measures
+// Generated from scripts/powerbi_model_spec.py. Create each measure on the '_Measures' table.
+// Lines starting with '// Folder:' and '// Format:' are the display folder and format string to set.
+
+// ============================================================================
+// 1. Volume
+// ============================================================================
+// Folder: 1. Volume
+// Format: #,0
+Total Requests =
+COUNTROWS ( 'Fact Service Request' )
+
+// Folder: 1. Volume
+// Format: #,0
+Service Requests =
+CALCULATE ( [Total Requests], 'Dim Intake'[Is Service Request] = TRUE () )
+
+// Folder: 1. Volume
+// Format: #,0
+First-Contact Resolutions =
+CALCULATE ( [Total Requests], 'Dim Intake'[Referral Type] = "Full Service" )
+
+// Folder: 1. Volume
+// Format: 0.0%
+Service Request Share % =
+DIVIDE ( [Service Requests], [Total Requests] )
+
+// Folder: 1. Volume
+// Format: #,0
+Closed Requests =
+CALCULATE ( [Total Requests], 'Fact Service Request'[Is Closed] = TRUE () )
+
+// Folder: 1. Volume
+// Format: #,0
+Open Requests =
+CALCULATE ( [Total Requests], 'Fact Service Request'[Is Closed] = FALSE () )
+
+// Folder: 1. Volume
+// Format: #,0
+Open Service Requests =
+CALCULATE ( [Service Requests], 'Fact Service Request'[Is Closed] = FALSE () )
+
+// Folder: 1. Volume
+// Format: 0.0%
+Closure Rate % =
+DIVIDE ( [Closed Requests], [Total Requests] )
+
+// Folder: 1. Volume
+// Format: yyyy-mm-dd
+First Data Date =
+CALCULATE ( MIN ( 'Fact Service Request'[Created At] ), REMOVEFILTERS () )
+
+// Folder: 1. Volume
+// Format: yyyy-mm-dd
+Last Data Date =
+CALCULATE ( MAX ( 'Fact Service Request'[Created At] ), REMOVEFILTERS () )
+
+// Folder: 1. Volume
+// Format: #,0
+Days in Period =
+VAR FirstDay = INT ( [First Data Date] )
+VAR LastDay = INT ( [Last Data Date] )
+RETURN
+    COUNTROWS (
+        FILTER (
+            VALUES ( 'Dim Date'[Date] ),
+            INT ( 'Dim Date'[Date] ) >= FirstDay && INT ( 'Dim Date'[Date] ) <= LastDay
+        )
+    )
+
+// Folder: 1. Volume
+// Format: #,0.0
+Requests per Day =
+DIVIDE ( [Total Requests], [Days in Period] )
+
+// Folder: 1. Volume
+// Format: #,0.0
+Service Requests per Day =
+DIVIDE ( [Service Requests], [Days in Period] )
+
+// Folder: 1. Volume
+// Format: #,0
+Closed by Close Date =
+CALCULATE ( [Closed Requests], USERELATIONSHIP ( 'Fact Service Request'[Closed Date Key], 'Dim Date'[Date Key] ) )
+
+// Folder: 1. Volume
+// Format: #,0
+Service Requests Closed by Close Date =
+CALCULATE ( [Closed Requests], 'Dim Intake'[Is Service Request] = TRUE (), USERELATIONSHIP ( 'Fact Service Request'[Closed Date Key], 'Dim Date'[Date Key] ) )
+
+// Folder: 1. Volume
+// Format: +#,0;-#,0;0
+Net Backlog Change (Opened - Closed) =
+[Service Requests] - [Service Requests Closed by Close Date]
+
+// ============================================================================
+// 2. Resolution
+// ============================================================================
+// Folder: 2. Resolution
+// Format: 0.0
+Median Resolution Days =
+CALCULATE ( MEDIAN ( 'Fact Service Request'[Resolution Days] ), 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Is Closed] = TRUE () )
+
+// Folder: 2. Resolution
+// Format: 0.0
+Avg Resolution Days =
+CALCULATE ( AVERAGE ( 'Fact Service Request'[Resolution Days] ), 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Is Closed] = TRUE () )
+
+// Folder: 2. Resolution
+// Format: 0.0
+P90 Resolution Days =
+CALCULATE ( PERCENTILE.INC ( 'Fact Service Request'[Resolution Days], 0.9 ), 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Is Closed] = TRUE () )
+
+// Folder: 2. Resolution
+// Format: 0.00
+Median Resolution Hours (First Contact) =
+CALCULATE ( MEDIAN ( 'Fact Service Request'[Resolution Hours] ), 'Dim Intake'[Referral Type] = "Full Service", 'Fact Service Request'[Is Closed] = TRUE () )
+
+// Folder: 2. Resolution
+// Format: 0.0%
+Resolved Within 7 Days % =
+VAR ClosedSR = CALCULATE ( [Closed Requests], 'Dim Intake'[Is Service Request] = TRUE () )
+VAR Within7 = CALCULATE ( [Closed Requests], 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Resolution Bucket] IN { "Under 1 hour", "Same day", "1-7 days" } )
+RETURN
+    DIVIDE ( Within7, ClosedSR )
+
+// ============================================================================
+// 3. SLA
+// ============================================================================
+// Folder: 3. SLA
+// Format: #,0
+SLA Evaluated =
+CALCULATE ( [Total Requests], 'Fact Service Request'[SLA Met] IN { TRUE (), FALSE () } )
+
+// Folder: 3. SLA
+// Format: #,0
+SLA Met =
+CALCULATE ( [Total Requests], 'Fact Service Request'[SLA Met] = TRUE () )
+
+// Folder: 3. SLA
+// Format: #,0
+SLA Missed =
+CALCULATE ( [Total Requests], 'Fact Service Request'[SLA Met] = FALSE () )
+
+// Folder: 3. SLA
+// Format: 0.0%
+SLA Attainment % =
+DIVIDE ( [SLA Met], [SLA Evaluated] )
+
+// Folder: 3. SLA
+// Format: 0%
+SLA Attainment Goal % =
+0.85
+
+// Folder: 3. SLA
+// Format: (none)
+SLA Status =
+SWITCH (
+    TRUE (),
+    ISBLANK ( [SLA Attainment %] ), "No closed service requests",
+    [SLA Attainment %] >= [SLA Attainment Goal %], "On goal",
+    [SLA Attainment %] >= [SLA Attainment Goal %] - 0.10, "Watch",
+    "Below goal"
+)
+
+// Folder: 3. SLA
+// Format: 0
+SLA Target Days (Selected) =
+IF ( HASONEVALUE ( 'Dim Service'[SLA Target Days] ), VALUES ( 'Dim Service'[SLA Target Days] ) )
+
+// ============================================================================
+// 4. Backlog
+// ============================================================================
+// Folder: 4. Backlog
+// Format: #,0
+Backlog (Snapshot Sum) =
+SUM ( 'Fact Backlog Snapshot'[Open Requests] )
+
+// Folder: 4. Backlog
+// Format: #,0
+Backlog (End of Period) =
+CALCULATE ( [Backlog (Snapshot Sum)], LASTNONBLANK ( 'Dim Date'[Date], [Backlog (Snapshot Sum)] ) )
+
+// Folder: 4. Backlog
+// Format: #,0
+Backlog Over 30 Days (End of Period) =
+CALCULATE ( SUM ( 'Fact Backlog Snapshot'[Open Over 30 Days] ), LASTNONBLANK ( 'Dim Date'[Date], [Backlog (Snapshot Sum)] ) )
+
+// Folder: 4. Backlog
+// Format: #,0
+Backlog Over 90 Days (End of Period) =
+CALCULATE ( SUM ( 'Fact Backlog Snapshot'[Open Over 90 Days] ), LASTNONBLANK ( 'Dim Date'[Date], [Backlog (Snapshot Sum)] ) )
+
+// Folder: 4. Backlog
+// Format: 0.0%
+Backlog Aged Over 30 Days % =
+DIVIDE ( [Backlog Over 30 Days (End of Period)], [Backlog (End of Period)] )
+
+// Folder: 4. Backlog
+// Format: +#,0;-#,0;0
+Backlog Change vs Prior Month =
+[Backlog (End of Period)] - CALCULATE ( [Backlog (End of Period)], PREVIOUSMONTH ( 'Dim Date'[Date] ) )
+
+// Folder: 4. Backlog
+// Format: 0.0
+Avg Open Age Days =
+CALCULATE ( AVERAGE ( 'Fact Service Request'[Open Age Days] ), 'Fact Service Request'[Is Closed] = FALSE (), 'Dim Intake'[Is Service Request] = TRUE () )
+
+// ============================================================================
+// 5. Time Intelligence
+// ============================================================================
+// Folder: 5. Time Intelligence
+// Format: #,0
+Requests PY =
+CALCULATE ( [Total Requests], SAMEPERIODLASTYEAR ( 'Dim Date'[Date] ) )
+
+// Folder: 5. Time Intelligence
+// Format: +0.0%;-0.0%;0.0%
+Requests YoY % =
+DIVIDE ( [Total Requests] - [Requests PY], [Requests PY] )
+
+// Folder: 5. Time Intelligence
+// Format: #,0
+Service Requests PY =
+CALCULATE ( [Service Requests], SAMEPERIODLASTYEAR ( 'Dim Date'[Date] ) )
+
+// Folder: 5. Time Intelligence
+// Format: +0.0%;-0.0%;0.0%
+Service Requests YoY % =
+DIVIDE ( [Service Requests] - [Service Requests PY], [Service Requests PY] )
+
+// Folder: 5. Time Intelligence
+// Format: #,0
+Requests MTD =
+TOTALMTD ( [Total Requests], 'Dim Date'[Date] )
+
+// Folder: 5. Time Intelligence
+// Format: #,0
+Requests YTD =
+TOTALYTD ( [Total Requests], 'Dim Date'[Date] )
+
+// Folder: 5. Time Intelligence
+// Format: #,0
+Requests Rolling 3M Avg =
+VAR LastDay = MAX ( 'Dim Date'[Date] )
+VAR Period = DATESINPERIOD ( 'Dim Date'[Date], LastDay, -3, MONTH )
+RETURN
+    CALCULATE ( AVERAGEX ( VALUES ( 'Dim Date'[Year Month Key] ), [Total Requests] ), Period )
+
+// Folder: 5. Time Intelligence
+// Format: #,0
+Requests Last 30 Days =
+VAR AsOf = [Last Data Date]
+RETURN
+    CALCULATE ( [Total Requests], REMOVEFILTERS ( 'Dim Date' ), DATESINPERIOD ( 'Dim Date'[Date], AsOf, -30, DAY ) )
+
+// Folder: 5. Time Intelligence
+// Format: #,0
+Requests Prior 30 Days =
+VAR AsOf = [Last Data Date] - 30
+RETURN
+    CALCULATE ( [Total Requests], REMOVEFILTERS ( 'Dim Date' ), DATESINPERIOD ( 'Dim Date'[Date], AsOf, -30, DAY ) )
+
+// Folder: 5. Time Intelligence
+// Format: +0.0%;-0.0%;0.0%
+Requests 30-Day Change % =
+DIVIDE ( [Requests Last 30 Days] - [Requests Prior 30 Days], [Requests Prior 30 Days] )
+
+// ============================================================================
+// 6. Channels
+// ============================================================================
+// Folder: 6. Channels
+// Format: #,0
+Mobile App Requests =
+CALCULATE ( [Total Requests], 'Dim Intake'[Channel] = "Mobile App" )
+
+// Folder: 6. Channels
+// Format: 0.0%
+Mobile App Share % =
+DIVIDE ( [Mobile App Requests], [Total Requests] )
+
+// Folder: 6. Channels
+// Format: 0.0%
+Digital Share % =
+DIVIDE ( CALCULATE ( [Total Requests], 'Dim Intake'[Channel Group] = "Digital" ), [Total Requests] )
+
+// Folder: 6. Channels
+// Format: 0.0%
+Phone Share % =
+DIVIDE ( CALCULATE ( [Total Requests], 'Dim Intake'[Channel] = "Phone Call" ), [Total Requests] )
+
+// ============================================================================
+// 7. Ranking & Share
+// ============================================================================
+// Folder: 7. Ranking & Share
+// Format: 0.0%
+Requests % of Total =
+DIVIDE ( [Total Requests], CALCULATE ( [Total Requests], REMOVEFILTERS ( 'Dim Service' ) ) )
+
+// Folder: 7. Ranking & Share
+// Format: 0.0%
+Service Requests % of Total =
+DIVIDE ( [Service Requests], CALCULATE ( [Service Requests], REMOVEFILTERS ( 'Dim Service' ) ) )
+
+// Folder: 7. Ranking & Share
+// Format: 0
+Category Rank =
+IF ( HASONEVALUE ( 'Dim Service'[Service Category] ), RANKX ( ALL ( 'Dim Service'[Service Category] ), [Service Requests], , DESC, DENSE ) )
+
+// Folder: 7. Ranking & Share
+// Format: 0
+Neighbourhood Rank =
+IF ( HASONEVALUE ( 'Dim Neighbourhood'[Neighbourhood] ), RANKX ( ALL ( 'Dim Neighbourhood'[Neighbourhood] ), [Service Requests], , DESC, DENSE ) )
+
+// Folder: 7. Ranking & Share
+// Format: (none)
+Top Service Category =
+CONCATENATEX ( TOPN ( 1, VALUES ( 'Dim Service'[Service Category] ), [Service Requests] ), 'Dim Service'[Service Category], ", " )
+
+// Folder: 7. Ranking & Share
+// Format: (none)
+Top Neighbourhood =
+CONCATENATEX ( TOPN ( 1, CALCULATETABLE ( VALUES ( 'Dim Neighbourhood'[Neighbourhood] ), 'Dim Neighbourhood'[Is Unknown] = FALSE () ), [Service Requests] ), 'Dim Neighbourhood'[Neighbourhood], ", " )
+
+// ============================================================================
+// 8. Data Quality
+// ============================================================================
+// Folder: 8. Data Quality
+// Format: 0
+DQ Checks Total =
+COUNTROWS ( 'Data Quality' )
+
+// Folder: 8. Data Quality
+// Format: 0
+DQ Checks Passed =
+CALCULATE ( COUNTROWS ( 'Data Quality' ), 'Data Quality'[Passed] = TRUE () )
+
+// Folder: 8. Data Quality
+// Format: (none)
+DQ Status =
+VAR CriticalFails = CALCULATE ( COUNTROWS ( 'Data Quality' ), 'Data Quality'[Passed] = FALSE (), 'Data Quality'[Severity] = "critical" )
+VAR AnyFails = CALCULATE ( COUNTROWS ( 'Data Quality' ), 'Data Quality'[Passed] = FALSE () )
+RETURN
+    SWITCH ( TRUE (), CriticalFails > 0, "FAIL", AnyFails > 0, "WARN", "PASS" )
+
+// Folder: 8. Data Quality
+// Format: (none)
+Pipeline Built At (UTC) =
+LOOKUPVALUE ( 'Build Info'[Value], 'Build Info'[Key], "built_at_utc" )
+
+// Folder: 8. Data Quality
+// Format: (none)
+Pipeline Version =
+LOOKUPVALUE ( 'Build Info'[Value], 'Build Info'[Key], "pipeline_version" )
+
+// Folder: 8. Data Quality
+// Format: #,0
+Fact Rows (Build) =
+VALUE ( LOOKUPVALUE ( 'Build Info'[Value], 'Build Info'[Key], "rows.gold.fact_service_request" ) )
+
+// ============================================================================
+// 9. Labels
+// ============================================================================
+// Folder: 9. Labels
+// Format: (none)
+Selected Period Label =
+VAR MinD = MIN ( 'Dim Date'[Date] )
+VAR MaxD = MAX ( 'Dim Date'[Date] )
+RETURN
+    FORMAT ( MinD, "d mmm yyyy" ) & " to " & FORMAT ( MaxD, "d mmm yyyy" )
+
+// Folder: 9. Labels
+// Format: (none)
+Data As Of Label =
+"Data as of " & FORMAT ( [Last Data Date], "d mmm yyyy" )
+
+// Folder: 9. Labels
+// Format: (none)
+Overview Title =
+"Edmonton 311 Service Requests  |  " & [Selected Period Label]

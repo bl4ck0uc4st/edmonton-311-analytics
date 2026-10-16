@@ -1,0 +1,1283 @@
+createOrReplace
+
+	expression DataSourceMode = "GitHub Release" meta [IsParameterQuery=true, List={"GitHub Release", "Local Folder"}, DefaultValue="GitHub Release", Type="Text", IsParameterQueryRequired=true]
+
+	expression GitHubReleaseBaseUrl = "https://github.com/bl4ck0uc4st/edmonton-311-analytics/releases/download/data-latest/" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+	expression LocalExportFolder = "C:\Projects\edmonton-311-analytics\data\exports" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+	expression fnLoadExport =
+			let
+			    // Loads one exported table from either the GitHub Release (default, refreshable from
+			    // anywhere) or a local folder produced by `yeg311 export`. Parquet keeps the DuckDB
+			    // types (dates, timestamps, booleans, integers) so very little re-typing is needed.
+			    LoadExport = (tableName as text) as table =>
+			        let
+			            fileName = tableName & ".parquet",
+			            folder = Text.TrimEnd(LocalExportFolder, {"\", "/"}),
+			            binary =
+			                if DataSourceMode = "Local Folder" then
+			                    File.Contents(folder & "\" & fileName)
+			                else
+			                    Web.Contents(GitHubReleaseBaseUrl, [RelativePath = fileName]),
+			            parquet = Parquet.Document(binary)
+			        in
+			            parquet
+			in
+			    LoadExport
+
+	/// Calendar dimension (one row per day). Marked as the date table; drives all time intelligence.
+	table 'Dim Date'
+		dataCategory: Time
+		/// Surrogate key yyyymmdd, joins to fact tables
+		column 'Date Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Date Key
+
+		/// Calendar date
+		column 'Date'
+			dataType: dateTime
+			isKey
+			formatString: yyyy-mm-dd
+			summarizeBy: none
+			sourceColumn: Date
+
+		/// Calendar year
+		column 'Year'
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: Year
+
+		/// Quarter number 1-4
+		column 'Quarter'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Quarter
+
+		/// Q1..Q4
+		column 'Quarter Name'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Quarter'
+			sourceColumn: Quarter Name
+
+		/// e.g. 2026 Q3
+		column 'Year Quarter'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Year Quarter
+
+		/// Month number 1-12
+		column 'Month'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Month
+
+		/// Full month name
+		column 'Month Name'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Month'
+			sourceColumn: Month Name
+
+		/// Three-letter month
+		column 'Month Short'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Month'
+			sourceColumn: Month Short
+
+		/// yyyymm integer for sorting
+		column 'Year Month Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Year Month Key
+
+		/// yyyy-mm text
+		column 'Year Month'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Year Month Key'
+			sourceColumn: Year Month
+
+		/// e.g. Oct 2026 (chart axis label)
+		column 'Month Year'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Year Month Key'
+			sourceColumn: Month Year
+
+		/// Day of month
+		column 'Day'
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: Day
+
+		/// ISO weekday 1=Monday..7=Sunday
+		column 'Day Of Week'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Day Of Week
+
+		/// Weekday name
+		column 'Day Name'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Day Of Week'
+			sourceColumn: Day Name
+
+		/// Three-letter weekday
+		column 'Day Short'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Day Of Week'
+			sourceColumn: Day Short
+
+		/// Saturday or Sunday
+		column 'Is Weekend'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Weekend
+
+		/// ISO week number
+		column 'ISO Week'
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: ISO Week
+
+		/// Winter (Dec-Feb), Spring, Summer, Fall
+		column 'Season'
+			dataType: string
+			summarizeBy: none
+			sortByColumn: 'Season Sort'
+			sourceColumn: Season
+
+		/// Season ordering 1-4
+		column 'Season Sort'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Season Sort
+
+		/// Alberta statutory holiday
+		column 'Is Holiday'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Holiday
+
+		/// Holiday name when applicable
+		column 'Holiday Name'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Holiday Name
+
+		/// Business day / Weekend / Holiday
+		column 'Day Type'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Day Type
+
+		partition 'Dim Date' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("dim_date"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"date_key", "Date Key"},
+				        {"date", "Date"},
+				        {"year", "Year"},
+				        {"quarter", "Quarter"},
+				        {"quarter_name", "Quarter Name"},
+				        {"year_quarter", "Year Quarter"},
+				        {"month", "Month"},
+				        {"month_name", "Month Name"},
+				        {"month_short", "Month Short"},
+				        {"year_month_key", "Year Month Key"},
+				        {"year_month", "Year Month"},
+				        {"month_year_label", "Month Year"},
+				        {"day", "Day"},
+				        {"day_of_week", "Day Of Week"},
+				        {"day_name", "Day Name"},
+				        {"day_short", "Day Short"},
+				        {"is_weekend", "Is Weekend"},
+				        {"iso_week", "ISO Week"},
+				        {"season", "Season"},
+				        {"season_sort", "Season Sort"},
+				        {"is_holiday", "Is Holiday"},
+				        {"holiday_name", "Holiday Name"},
+				        {"day_type", "Day Type"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Date Key", Int64.Type},
+				        {"Date", type date},
+				        {"Year", Int64.Type},
+				        {"Quarter", Int64.Type},
+				        {"Quarter Name", type text},
+				        {"Year Quarter", type text},
+				        {"Month", Int64.Type},
+				        {"Month Name", type text},
+				        {"Month Short", type text},
+				        {"Year Month Key", Int64.Type},
+				        {"Year Month", type text},
+				        {"Month Year", type text},
+				        {"Day", Int64.Type},
+				        {"Day Of Week", Int64.Type},
+				        {"Day Name", type text},
+				        {"Day Short", type text},
+				        {"Is Weekend", type logical},
+				        {"ISO Week", Int64.Type},
+				        {"Season", type text},
+				        {"Season Sort", Int64.Type},
+				        {"Is Holiday", type logical},
+				        {"Holiday Name", type text},
+				        {"Day Type", type text}
+				    })
+				in
+				    Typed
+
+	/// Service hierarchy: Service Group > Service Area > Service Category > Service Description, plus illustrative SLA targets.
+	table 'Dim Service'
+		/// Surrogate key
+		column 'Service Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Service Key
+
+		/// City business area responsible for the request
+		column 'Service Area'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Service Area
+
+		/// Type of request (e.g. Potholes, Bylaw Complaints)
+		column 'Service Category'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Service Category
+
+		/// Most detailed request description
+		column 'Service Description'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Service Description
+
+		/// Analyst roll-up of service areas (seeds/service_groups.csv)
+		column 'Service Group'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Service Group
+
+		/// Area and category concatenated for labels
+		column 'Area / Category'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Area / Category
+
+		/// Illustrative response target in days (seeds/sla_targets.csv)
+		column 'SLA Target Days'
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: SLA Target Days
+
+		/// Where the target came from (exact / area default / global default)
+		column 'SLA Basis'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: SLA Basis
+
+		/// True for information-only call types
+		column 'Is Informational'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Informational
+
+		partition 'Dim Service' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("dim_service"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"service_key", "Service Key"},
+				        {"service_area", "Service Area"},
+				        {"service_category", "Service Category"},
+				        {"service_description", "Service Description"},
+				        {"service_group", "Service Group"},
+				        {"area_category", "Area / Category"},
+				        {"sla_target_days", "SLA Target Days"},
+				        {"sla_basis", "SLA Basis"},
+				        {"is_informational", "Is Informational"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Service Key", Int64.Type},
+				        {"Service Area", type text},
+				        {"Service Category", type text},
+				        {"Service Description", type text},
+				        {"Service Group", type text},
+				        {"Area / Category", type text},
+				        {"SLA Target Days", Int64.Type},
+				        {"SLA Basis", type text},
+				        {"Is Informational", type logical}
+				    })
+				in
+				    Typed
+
+	/// Edmonton neighbourhoods with ward roll-up and centroid coordinates (the finest geography the source publishes).
+	table 'Dim Neighbourhood'
+		/// Surrogate key (= neighbourhood id, -1 = Unknown)
+		column 'Neighbourhood Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Neighbourhood Key
+
+		/// City of Edmonton neighbourhood number
+		column 'Neighbourhood ID'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Neighbourhood ID
+
+		/// Neighbourhood name (title case)
+		column 'Neighbourhood'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Neighbourhood
+
+		/// Name exactly as published (upper case)
+		column 'Neighbourhood (Source)'
+			dataType: string
+			isHidden
+			summarizeBy: none
+			sourceColumn: Neighbourhood (Source)
+
+		/// 2021 City of Edmonton ward (Indigenous names)
+		column 'Ward'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Ward
+
+		/// Neighbourhood centroid latitude
+		column 'Latitude'
+			dataType: double
+			dataCategory: Latitude
+			summarizeBy: none
+			sourceColumn: Latitude
+
+		/// Neighbourhood centroid longitude
+		column 'Longitude'
+			dataType: double
+			dataCategory: Longitude
+			summarizeBy: none
+			sourceColumn: Longitude
+
+		/// Ward centroid latitude
+		column 'Ward Latitude'
+			dataType: double
+			dataCategory: Latitude
+			summarizeBy: none
+			sourceColumn: Ward Latitude
+
+		/// Ward centroid longitude
+		column 'Ward Longitude'
+			dataType: double
+			dataCategory: Longitude
+			summarizeBy: none
+			sourceColumn: Ward Longitude
+
+		/// True for the Unknown placeholder member
+		column 'Is Unknown'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Unknown
+
+		partition 'Dim Neighbourhood' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("dim_neighbourhood"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"neighbourhood_key", "Neighbourhood Key"},
+				        {"neighbourhood_id", "Neighbourhood ID"},
+				        {"neighbourhood_name", "Neighbourhood"},
+				        {"neighbourhood_name_source", "Neighbourhood (Source)"},
+				        {"ward", "Ward"},
+				        {"nbhd_latitude", "Latitude"},
+				        {"nbhd_longitude", "Longitude"},
+				        {"ward_latitude", "Ward Latitude"},
+				        {"ward_longitude", "Ward Longitude"},
+				        {"is_unknown_member", "Is Unknown"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Neighbourhood Key", Int64.Type},
+				        {"Neighbourhood ID", Int64.Type},
+				        {"Neighbourhood", type text},
+				        {"Neighbourhood (Source)", type text},
+				        {"Ward", type text},
+				        {"Latitude", type number},
+				        {"Longitude", type number},
+				        {"Ward Latitude", type number},
+				        {"Ward Longitude", type number},
+				        {"Is Unknown", type logical}
+				    })
+				in
+				    Typed
+
+	/// How a request came in (channel) and whether it became a service request (referral type).
+	table 'Dim Intake'
+		/// Surrogate key
+		column 'Intake Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Intake Key
+
+		/// Phone Call, Mobile App, Web Form, ESRI MAP, Email
+		column 'Channel'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Channel
+
+		/// Full Service (answered at first contact) or Referral (sent to a business area)
+		column 'Referral Type'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Referral Type
+
+		/// Digital vs Voice
+		column 'Channel Group'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Channel Group
+
+		/// Readable label for referral type
+		column 'Request Type'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Request Type
+
+		/// True when the request was referred to a business area
+		column 'Is Service Request'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Service Request
+
+		partition 'Dim Intake' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("dim_intake"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"intake_key", "Intake Key"},
+				        {"interaction_channel", "Channel"},
+				        {"referral_type", "Referral Type"},
+				        {"channel_group", "Channel Group"},
+				        {"request_type", "Request Type"},
+				        {"is_service_request", "Is Service Request"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Intake Key", Int64.Type},
+				        {"Channel", type text},
+				        {"Referral Type", type text},
+				        {"Channel Group", type text},
+				        {"Request Type", type text},
+				        {"Is Service Request", type logical}
+				    })
+				in
+				    Typed
+
+	/// Open/Closed plus the outcome detail recorded by the business area.
+	table 'Dim Status'
+		/// Surrogate key
+		column 'Status Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Status Key
+
+		/// Open or Closed
+		column 'Status'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Status
+
+		/// Outcome / progress note (Not specified when blank)
+		column 'Status Detail'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Status Detail
+
+		/// True when Status = Closed
+		column 'Is Closed'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Closed
+
+		/// Grouping of status details (Resolved, Duplicate, Redirected, ...)
+		column 'Outcome Group'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Outcome Group
+
+		partition 'Dim Status' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("dim_status"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"status_key", "Status Key"},
+				        {"request_status", "Status"},
+				        {"status_detail", "Status Detail"},
+				        {"is_closed_status", "Is Closed"},
+				        {"outcome_group", "Outcome Group"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Status Key", Int64.Type},
+				        {"Status", type text},
+				        {"Status Detail", type text},
+				        {"Is Closed", type logical},
+				        {"Outcome Group", type text}
+				    })
+				in
+				    Typed
+
+	/// Transaction fact: one row per 311 request with timings, SLA evaluation and foreign keys.
+	table 'Fact Service Request'
+		/// Source row id
+		column 'Request ID'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Request ID
+
+		/// Request creation timestamp (Edmonton local time)
+		column 'Created At'
+			dataType: dateTime
+			isHidden
+			summarizeBy: none
+			sourceColumn: Created At
+
+		/// Close timestamp, blank while open
+		column 'Closed At'
+			dataType: dateTime
+			isHidden
+			summarizeBy: none
+			sourceColumn: Closed At
+
+		/// FK to Dim Date (active relationship)
+		column 'Created Date Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Created Date Key
+
+		/// FK to Dim Date (inactive relationship)
+		column 'Closed Date Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Closed Date Key
+
+		/// Hour of day 0-23 the request was created
+		column 'Created Hour'
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: Created Hour
+
+		/// FK to Dim Service
+		column 'Service Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Service Key
+
+		/// FK to Dim Neighbourhood
+		column 'Neighbourhood Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Neighbourhood Key
+
+		/// FK to Dim Intake
+		column 'Intake Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Intake Key
+
+		/// FK to Dim Status
+		column 'Status Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Status Key
+
+		/// True when the request is closed
+		column 'Is Closed'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Closed
+
+		/// Denormalised from Dim Intake for fast filters
+		column 'Is Service Request'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Is Service Request
+
+		/// Hours from creation to close
+		column 'Resolution Hours'
+			dataType: double
+			summarizeBy: none
+			sourceColumn: Resolution Hours
+
+		/// Days from creation to close (fractional)
+		column 'Resolution Days'
+			dataType: double
+			summarizeBy: none
+			sourceColumn: Resolution Days
+
+		/// Whole calendar days between create and close dates
+		column 'Resolution Calendar Days'
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: Resolution Calendar Days
+
+		/// Target applied to this request
+		column 'SLA Target Days'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: SLA Target Days
+
+		/// True/False for closed service requests, blank otherwise
+		column 'SLA Met'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: SLA Met
+
+		/// Age of open requests as of the data as-of date
+		column 'Open Age Days'
+			dataType: double
+			summarizeBy: none
+			sourceColumn: Open Age Days
+
+		/// 0-7 / 8-30 / 31-90 / 90+ days (open requests only)
+		column 'Backlog Age Bucket'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Backlog Age Bucket
+
+		/// Under 1 hour / Same day / 1-7 days / 8-30 / 31-90 / Over 90
+		column 'Resolution Bucket'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Resolution Bucket
+
+		/// Source close timestamp preceded creation (rejected)
+		column 'Closed Before Created Flag'
+			dataType: boolean
+			isHidden
+			summarizeBy: none
+			sourceColumn: Closed Before Created Flag
+
+		/// Always 1; convenience column
+		column 'Request Count'
+			dataType: int64
+			isHidden
+			summarizeBy: sum
+			sourceColumn: Request Count
+
+		partition 'Fact Service Request' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("fact_service_request"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"request_id", "Request ID"},
+				        {"created_at", "Created At"},
+				        {"closed_at", "Closed At"},
+				        {"created_date_key", "Created Date Key"},
+				        {"closed_date_key", "Closed Date Key"},
+				        {"created_hour", "Created Hour"},
+				        {"service_key", "Service Key"},
+				        {"neighbourhood_key", "Neighbourhood Key"},
+				        {"intake_key", "Intake Key"},
+				        {"status_key", "Status Key"},
+				        {"is_closed", "Is Closed"},
+				        {"is_service_request", "Is Service Request"},
+				        {"resolution_hours", "Resolution Hours"},
+				        {"resolution_days", "Resolution Days"},
+				        {"resolution_calendar_days", "Resolution Calendar Days"},
+				        {"sla_target_days", "SLA Target Days"},
+				        {"sla_met", "SLA Met"},
+				        {"open_age_days", "Open Age Days"},
+				        {"backlog_age_bucket", "Backlog Age Bucket"},
+				        {"resolution_bucket", "Resolution Bucket"},
+				        {"closed_before_created_flag", "Closed Before Created Flag"},
+				        {"request_count", "Request Count"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Request ID", Int64.Type},
+				        {"Created At", type datetime},
+				        {"Closed At", type datetime},
+				        {"Created Date Key", Int64.Type},
+				        {"Closed Date Key", Int64.Type},
+				        {"Created Hour", Int64.Type},
+				        {"Service Key", Int64.Type},
+				        {"Neighbourhood Key", Int64.Type},
+				        {"Intake Key", Int64.Type},
+				        {"Status Key", Int64.Type},
+				        {"Is Closed", type logical},
+				        {"Is Service Request", type logical},
+				        {"Resolution Hours", type number},
+				        {"Resolution Days", type number},
+				        {"Resolution Calendar Days", Int64.Type},
+				        {"SLA Target Days", Int64.Type},
+				        {"SLA Met", type logical},
+				        {"Open Age Days", type number},
+				        {"Backlog Age Bucket", type text},
+				        {"Resolution Bucket", type text},
+				        {"Closed Before Created Flag", type logical},
+				        {"Request Count", Int64.Type}
+				    })
+				in
+				    Typed
+
+	/// Periodic snapshot: open service requests at the end of each day, by service.
+	table 'Fact Backlog Snapshot'
+		/// FK to Dim Date (snapshot day)
+		column 'Date Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Date Key
+
+		/// FK to Dim Service
+		column 'Service Key'
+			dataType: int64
+			isHidden
+			summarizeBy: none
+			sourceColumn: Service Key
+
+		/// Service requests open at end of day
+		column 'Open Requests'
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: Open Requests
+
+		/// Of which older than 30 days
+		column 'Open Over 30 Days'
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: Open Over 30 Days
+
+		/// Of which older than 90 days
+		column 'Open Over 90 Days'
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: Open Over 90 Days
+
+		partition 'Fact Backlog Snapshot' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("fact_backlog_snapshot"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"date_key", "Date Key"},
+				        {"service_key", "Service Key"},
+				        {"open_requests", "Open Requests"},
+				        {"open_over_30_days", "Open Over 30 Days"},
+				        {"open_over_90_days", "Open Over 90 Days"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Date Key", Int64.Type},
+				        {"Service Key", Int64.Type},
+				        {"Open Requests", Int64.Type},
+				        {"Open Over 30 Days", Int64.Type},
+				        {"Open Over 90 Days", Int64.Type}
+				    })
+				in
+				    Typed
+
+	/// Results of the pipeline's data-quality checks for the loaded build.
+	table 'Data Quality'
+		/// When the checks ran
+		column 'Run At (UTC)'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Run At (UTC)
+
+		/// Check identifier
+		column 'Check'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Check
+
+		/// What the check verifies
+		column 'Description'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Description
+
+		/// critical or warning
+		column 'Severity'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Severity
+
+		/// Measured value (failing rows, %, days)
+		column 'Value'
+			dataType: double
+			summarizeBy: none
+			sourceColumn: Value
+
+		/// Maximum acceptable value
+		column 'Threshold'
+			dataType: double
+			summarizeBy: none
+			sourceColumn: Threshold
+
+		/// rows / % / days
+		column 'Unit'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Unit
+
+		/// True when value <= threshold
+		column 'Passed'
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: Passed
+
+		partition 'Data Quality' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("quality_results"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"run_at_utc", "Run At (UTC)"},
+				        {"check_name", "Check"},
+				        {"description", "Description"},
+				        {"severity", "Severity"},
+				        {"value", "Value"},
+				        {"threshold", "Threshold"},
+				        {"unit", "Unit"},
+				        {"passed", "Passed"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Run At (UTC)", type text},
+				        {"Check", type text},
+				        {"Description", type text},
+				        {"Severity", type text},
+				        {"Value", type number},
+				        {"Threshold", type number},
+				        {"Unit", type text},
+				        {"Passed", type logical}
+				    })
+				in
+				    Typed
+
+	/// Key/value metadata about the warehouse build (version, timestamps, row counts).
+	table 'Build Info'
+		/// Metadata key
+		column 'Key'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Key
+
+		/// Metadata value
+		column 'Value'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Value
+
+		partition 'Build Info' = m
+			mode: import
+			source =
+				let
+				    Source = fnLoadExport("build_info"),
+				    Renamed = Table.RenameColumns(Source, {
+				        {"key", "Key"},
+				        {"value", "Value"}
+				    }),
+				    Typed = Table.TransformColumnTypes(Renamed, {
+				        {"Key", type text},
+				        {"Value", type text}
+				    })
+				in
+				    Typed
+
+	table '_Measures'
+		column 'Measures'
+			dataType: string
+			isHidden
+			summarizeBy: none
+			sourceColumn: Measures
+
+		measure 'Total Requests' = COUNTROWS ( 'Fact Service Request' )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Service Requests' = CALCULATE ( [Total Requests], 'Dim Intake'[Is Service Request] = TRUE () )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'First-Contact Resolutions' = CALCULATE ( [Total Requests], 'Dim Intake'[Referral Type] = "Full Service" )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Service Request Share %' = DIVIDE ( [Service Requests], [Total Requests] )
+			formatString: 0.0%
+			displayFolder: 1. Volume
+
+		measure 'Closed Requests' = CALCULATE ( [Total Requests], 'Fact Service Request'[Is Closed] = TRUE () )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Open Requests' = CALCULATE ( [Total Requests], 'Fact Service Request'[Is Closed] = FALSE () )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Open Service Requests' = CALCULATE ( [Service Requests], 'Fact Service Request'[Is Closed] = FALSE () )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Closure Rate %' = DIVIDE ( [Closed Requests], [Total Requests] )
+			formatString: 0.0%
+			displayFolder: 1. Volume
+
+		measure 'First Data Date' = CALCULATE ( MIN ( 'Fact Service Request'[Created At] ), REMOVEFILTERS () )
+			formatString: yyyy-mm-dd
+			displayFolder: 1. Volume
+
+		measure 'Last Data Date' = CALCULATE ( MAX ( 'Fact Service Request'[Created At] ), REMOVEFILTERS () )
+			formatString: yyyy-mm-dd
+			displayFolder: 1. Volume
+
+		measure 'Days in Period' =
+				VAR FirstDay = INT ( [First Data Date] )
+				VAR LastDay = INT ( [Last Data Date] )
+				RETURN
+				    COUNTROWS (
+				        FILTER (
+				            VALUES ( 'Dim Date'[Date] ),
+				            INT ( 'Dim Date'[Date] ) >= FirstDay && INT ( 'Dim Date'[Date] ) <= LastDay
+				        )
+				    )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Requests per Day' = DIVIDE ( [Total Requests], [Days in Period] )
+			formatString: #,0.0
+			displayFolder: 1. Volume
+
+		measure 'Service Requests per Day' = DIVIDE ( [Service Requests], [Days in Period] )
+			formatString: #,0.0
+			displayFolder: 1. Volume
+
+		measure 'Closed by Close Date' = CALCULATE ( [Closed Requests], USERELATIONSHIP ( 'Fact Service Request'[Closed Date Key], 'Dim Date'[Date Key] ) )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Service Requests Closed by Close Date' = CALCULATE ( [Closed Requests], 'Dim Intake'[Is Service Request] = TRUE (), USERELATIONSHIP ( 'Fact Service Request'[Closed Date Key], 'Dim Date'[Date Key] ) )
+			formatString: #,0
+			displayFolder: 1. Volume
+
+		measure 'Net Backlog Change (Opened - Closed)' = [Service Requests] - [Service Requests Closed by Close Date]
+			formatString: +#,0;-#,0;0
+			displayFolder: 1. Volume
+
+		measure 'Median Resolution Days' = CALCULATE ( MEDIAN ( 'Fact Service Request'[Resolution Days] ), 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Is Closed] = TRUE () )
+			formatString: 0.0
+			displayFolder: 2. Resolution
+
+		measure 'Avg Resolution Days' = CALCULATE ( AVERAGE ( 'Fact Service Request'[Resolution Days] ), 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Is Closed] = TRUE () )
+			formatString: 0.0
+			displayFolder: 2. Resolution
+
+		measure 'P90 Resolution Days' = CALCULATE ( PERCENTILE.INC ( 'Fact Service Request'[Resolution Days], 0.9 ), 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Is Closed] = TRUE () )
+			formatString: 0.0
+			displayFolder: 2. Resolution
+
+		measure 'Median Resolution Hours (First Contact)' = CALCULATE ( MEDIAN ( 'Fact Service Request'[Resolution Hours] ), 'Dim Intake'[Referral Type] = "Full Service", 'Fact Service Request'[Is Closed] = TRUE () )
+			formatString: 0.00
+			displayFolder: 2. Resolution
+
+		measure 'Resolved Within 7 Days %' =
+				VAR ClosedSR = CALCULATE ( [Closed Requests], 'Dim Intake'[Is Service Request] = TRUE () )
+				VAR Within7 = CALCULATE ( [Closed Requests], 'Dim Intake'[Is Service Request] = TRUE (), 'Fact Service Request'[Resolution Bucket] IN { "Under 1 hour", "Same day", "1-7 days" } )
+				RETURN
+				    DIVIDE ( Within7, ClosedSR )
+			formatString: 0.0%
+			displayFolder: 2. Resolution
+
+		measure 'SLA Evaluated' = CALCULATE ( [Total Requests], 'Fact Service Request'[SLA Met] IN { TRUE (), FALSE () } )
+			formatString: #,0
+			displayFolder: 3. SLA
+
+		measure 'SLA Met' = CALCULATE ( [Total Requests], 'Fact Service Request'[SLA Met] = TRUE () )
+			formatString: #,0
+			displayFolder: 3. SLA
+
+		measure 'SLA Missed' = CALCULATE ( [Total Requests], 'Fact Service Request'[SLA Met] = FALSE () )
+			formatString: #,0
+			displayFolder: 3. SLA
+
+		measure 'SLA Attainment %' = DIVIDE ( [SLA Met], [SLA Evaluated] )
+			formatString: 0.0%
+			displayFolder: 3. SLA
+
+		measure 'SLA Attainment Goal %' = 0.85
+			formatString: 0%
+			displayFolder: 3. SLA
+
+		measure 'SLA Status' =
+				SWITCH (
+				    TRUE (),
+				    ISBLANK ( [SLA Attainment %] ), "No closed service requests",
+				    [SLA Attainment %] >= [SLA Attainment Goal %], "On goal",
+				    [SLA Attainment %] >= [SLA Attainment Goal %] - 0.10, "Watch",
+				    "Below goal"
+				)
+			displayFolder: 3. SLA
+
+		measure 'SLA Target Days (Selected)' = IF ( HASONEVALUE ( 'Dim Service'[SLA Target Days] ), VALUES ( 'Dim Service'[SLA Target Days] ) )
+			formatString: 0
+			displayFolder: 3. SLA
+
+		measure 'Backlog (Snapshot Sum)' = SUM ( 'Fact Backlog Snapshot'[Open Requests] )
+			formatString: #,0
+			displayFolder: 4. Backlog
+
+		measure 'Backlog (End of Period)' = CALCULATE ( [Backlog (Snapshot Sum)], LASTNONBLANK ( 'Dim Date'[Date], [Backlog (Snapshot Sum)] ) )
+			formatString: #,0
+			displayFolder: 4. Backlog
+
+		measure 'Backlog Over 30 Days (End of Period)' = CALCULATE ( SUM ( 'Fact Backlog Snapshot'[Open Over 30 Days] ), LASTNONBLANK ( 'Dim Date'[Date], [Backlog (Snapshot Sum)] ) )
+			formatString: #,0
+			displayFolder: 4. Backlog
+
+		measure 'Backlog Over 90 Days (End of Period)' = CALCULATE ( SUM ( 'Fact Backlog Snapshot'[Open Over 90 Days] ), LASTNONBLANK ( 'Dim Date'[Date], [Backlog (Snapshot Sum)] ) )
+			formatString: #,0
+			displayFolder: 4. Backlog
+
+		measure 'Backlog Aged Over 30 Days %' = DIVIDE ( [Backlog Over 30 Days (End of Period)], [Backlog (End of Period)] )
+			formatString: 0.0%
+			displayFolder: 4. Backlog
+
+		measure 'Backlog Change vs Prior Month' = [Backlog (End of Period)] - CALCULATE ( [Backlog (End of Period)], PREVIOUSMONTH ( 'Dim Date'[Date] ) )
+			formatString: +#,0;-#,0;0
+			displayFolder: 4. Backlog
+
+		measure 'Avg Open Age Days' = CALCULATE ( AVERAGE ( 'Fact Service Request'[Open Age Days] ), 'Fact Service Request'[Is Closed] = FALSE (), 'Dim Intake'[Is Service Request] = TRUE () )
+			formatString: 0.0
+			displayFolder: 4. Backlog
+
+		measure 'Requests PY' = CALCULATE ( [Total Requests], SAMEPERIODLASTYEAR ( 'Dim Date'[Date] ) )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests YoY %' = DIVIDE ( [Total Requests] - [Requests PY], [Requests PY] )
+			formatString: +0.0%;-0.0%;0.0%
+			displayFolder: 5. Time Intelligence
+
+		measure 'Service Requests PY' = CALCULATE ( [Service Requests], SAMEPERIODLASTYEAR ( 'Dim Date'[Date] ) )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Service Requests YoY %' = DIVIDE ( [Service Requests] - [Service Requests PY], [Service Requests PY] )
+			formatString: +0.0%;-0.0%;0.0%
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests MTD' = TOTALMTD ( [Total Requests], 'Dim Date'[Date] )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests YTD' = TOTALYTD ( [Total Requests], 'Dim Date'[Date] )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests Rolling 3M Avg' =
+				VAR LastDay = MAX ( 'Dim Date'[Date] )
+				VAR Period = DATESINPERIOD ( 'Dim Date'[Date], LastDay, -3, MONTH )
+				RETURN
+				    CALCULATE ( AVERAGEX ( VALUES ( 'Dim Date'[Year Month Key] ), [Total Requests] ), Period )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests Last 30 Days' =
+				VAR AsOf = [Last Data Date]
+				RETURN
+				    CALCULATE ( [Total Requests], REMOVEFILTERS ( 'Dim Date' ), DATESINPERIOD ( 'Dim Date'[Date], AsOf, -30, DAY ) )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests Prior 30 Days' =
+				VAR AsOf = [Last Data Date] - 30
+				RETURN
+				    CALCULATE ( [Total Requests], REMOVEFILTERS ( 'Dim Date' ), DATESINPERIOD ( 'Dim Date'[Date], AsOf, -30, DAY ) )
+			formatString: #,0
+			displayFolder: 5. Time Intelligence
+
+		measure 'Requests 30-Day Change %' = DIVIDE ( [Requests Last 30 Days] - [Requests Prior 30 Days], [Requests Prior 30 Days] )
+			formatString: +0.0%;-0.0%;0.0%
+			displayFolder: 5. Time Intelligence
+
+		measure 'Mobile App Requests' = CALCULATE ( [Total Requests], 'Dim Intake'[Channel] = "Mobile App" )
+			formatString: #,0
+			displayFolder: 6. Channels
+
+		measure 'Mobile App Share %' = DIVIDE ( [Mobile App Requests], [Total Requests] )
+			formatString: 0.0%
+			displayFolder: 6. Channels
+
+		measure 'Digital Share %' = DIVIDE ( CALCULATE ( [Total Requests], 'Dim Intake'[Channel Group] = "Digital" ), [Total Requests] )
+			formatString: 0.0%
+			displayFolder: 6. Channels
+
+		measure 'Phone Share %' = DIVIDE ( CALCULATE ( [Total Requests], 'Dim Intake'[Channel] = "Phone Call" ), [Total Requests] )
+			formatString: 0.0%
+			displayFolder: 6. Channels
+
+		measure 'Requests % of Total' = DIVIDE ( [Total Requests], CALCULATE ( [Total Requests], REMOVEFILTERS ( 'Dim Service' ) ) )
+			formatString: 0.0%
+			displayFolder: 7. Ranking & Share
+
+		measure 'Service Requests % of Total' = DIVIDE ( [Service Requests], CALCULATE ( [Service Requests], REMOVEFILTERS ( 'Dim Service' ) ) )
+			formatString: 0.0%
+			displayFolder: 7. Ranking & Share
+
+		measure 'Category Rank' = IF ( HASONEVALUE ( 'Dim Service'[Service Category] ), RANKX ( ALL ( 'Dim Service'[Service Category] ), [Service Requests], , DESC, DENSE ) )
+			formatString: 0
+			displayFolder: 7. Ranking & Share
+
+		measure 'Neighbourhood Rank' = IF ( HASONEVALUE ( 'Dim Neighbourhood'[Neighbourhood] ), RANKX ( ALL ( 'Dim Neighbourhood'[Neighbourhood] ), [Service Requests], , DESC, DENSE ) )
+			formatString: 0
+			displayFolder: 7. Ranking & Share
+
+		measure 'Top Service Category' = CONCATENATEX ( TOPN ( 1, VALUES ( 'Dim Service'[Service Category] ), [Service Requests] ), 'Dim Service'[Service Category], ", " )
+			displayFolder: 7. Ranking & Share
+
+		measure 'Top Neighbourhood' = CONCATENATEX ( TOPN ( 1, CALCULATETABLE ( VALUES ( 'Dim Neighbourhood'[Neighbourhood] ), 'Dim Neighbourhood'[Is Unknown] = FALSE () ), [Service Requests] ), 'Dim Neighbourhood'[Neighbourhood], ", " )
+			displayFolder: 7. Ranking & Share
+
+		measure 'DQ Checks Total' = COUNTROWS ( 'Data Quality' )
+			formatString: 0
+			displayFolder: 8. Data Quality
+
+		measure 'DQ Checks Passed' = CALCULATE ( COUNTROWS ( 'Data Quality' ), 'Data Quality'[Passed] = TRUE () )
+			formatString: 0
+			displayFolder: 8. Data Quality
+
+		measure 'DQ Status' =
+				VAR CriticalFails = CALCULATE ( COUNTROWS ( 'Data Quality' ), 'Data Quality'[Passed] = FALSE (), 'Data Quality'[Severity] = "critical" )
+				VAR AnyFails = CALCULATE ( COUNTROWS ( 'Data Quality' ), 'Data Quality'[Passed] = FALSE () )
+				RETURN
+				    SWITCH ( TRUE (), CriticalFails > 0, "FAIL", AnyFails > 0, "WARN", "PASS" )
+			displayFolder: 8. Data Quality
+
+		measure 'Pipeline Built At (UTC)' = LOOKUPVALUE ( 'Build Info'[Value], 'Build Info'[Key], "built_at_utc" )
+			displayFolder: 8. Data Quality
+
+		measure 'Pipeline Version' = LOOKUPVALUE ( 'Build Info'[Value], 'Build Info'[Key], "pipeline_version" )
+			displayFolder: 8. Data Quality
+
+		measure 'Fact Rows (Build)' = VALUE ( LOOKUPVALUE ( 'Build Info'[Value], 'Build Info'[Key], "rows.gold.fact_service_request" ) )
+			formatString: #,0
+			displayFolder: 8. Data Quality
+
+		measure 'Selected Period Label' =
+				VAR MinD = MIN ( 'Dim Date'[Date] )
+				VAR MaxD = MAX ( 'Dim Date'[Date] )
+				RETURN
+				    FORMAT ( MinD, "d mmm yyyy" ) & " to " & FORMAT ( MaxD, "d mmm yyyy" )
+			displayFolder: 9. Labels
+
+		measure 'Data As Of Label' = "Data as of " & FORMAT ( [Last Data Date], "d mmm yyyy" )
+			displayFolder: 9. Labels
+
+		measure 'Overview Title' = "Edmonton 311 Service Requests  |  " & [Selected Period Label]
+			displayFolder: 9. Labels
+
+		partition '_Measures' = m
+			mode: import
+			source =
+				let
+				    // Empty table that hosts every measure (keeps the field list tidy). Hide the column.
+				    Source = #table(type table [#"Measures" = text], {})
+				in
+				    Source
+
+	table 'Security Ward Users'
+		isHidden
+		column 'User Email'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: User Email
+
+		column 'Ward'
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Ward
+
+		partition 'Security Ward Users' = m
+			mode: import
+			source =
+				let
+				    // Email -> ward mapping used by the dynamic RLS role. Replace with your own table
+				    // (Excel/SharePoint list/database). Sample file: powerbi/rls/security_ward_users.csv
+				    Source = Csv.Document(File.Contents(Text.TrimEnd(LocalExportFolder, {"\", "/"}) & "\..\..\powerbi\rls\security_ward_users.csv"), [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				    Promoted = Table.PromoteHeaders(Source, [PromoteAllScalars = true]),
+				    Renamed = Table.RenameColumns(Promoted, {{"user_email", "User Email"}, {"ward", "Ward"}}),
+				    Typed = Table.TransformColumnTypes(Renamed, {{"User Email", type text}, {"Ward", type text}})
+				in
+				    Typed
+
+	relationship rel_01_FactServiceRequest_CreatedDateKey
+		fromColumn: 'Fact Service Request'.'Created Date Key'
+		toColumn: 'Dim Date'.'Date Key'
+
+	relationship rel_02_FactServiceRequest_ClosedDateKey
+		isActive: false
+		fromColumn: 'Fact Service Request'.'Closed Date Key'
+		toColumn: 'Dim Date'.'Date Key'
+
+	relationship rel_03_FactServiceRequest_ServiceKey
+		fromColumn: 'Fact Service Request'.'Service Key'
+		toColumn: 'Dim Service'.'Service Key'
+
+	relationship rel_04_FactServiceRequest_NeighbourhoodKey
+		fromColumn: 'Fact Service Request'.'Neighbourhood Key'
+		toColumn: 'Dim Neighbourhood'.'Neighbourhood Key'
+
+	relationship rel_05_FactServiceRequest_IntakeKey
+		fromColumn: 'Fact Service Request'.'Intake Key'
+		toColumn: 'Dim Intake'.'Intake Key'
+
+	relationship rel_06_FactServiceRequest_StatusKey
+		fromColumn: 'Fact Service Request'.'Status Key'
+		toColumn: 'Dim Status'.'Status Key'
+
+	relationship rel_07_FactBacklogSnapshot_DateKey
+		fromColumn: 'Fact Backlog Snapshot'.'Date Key'
+		toColumn: 'Dim Date'.'Date Key'
+
+	relationship rel_08_FactBacklogSnapshot_ServiceKey
+		fromColumn: 'Fact Backlog Snapshot'.'Service Key'
+		toColumn: 'Dim Service'.'Service Key'
+
+	role 'Ward Viewer - papastew (static example)'
+		modelPermission: read
+
+		tablePermission 'Dim Neighbourhood' = 'Dim Neighbourhood'[Ward] = "papastew"
+
+	role 'Ward Viewer - dynamic'
+		modelPermission: read
+
+		tablePermission 'Dim Neighbourhood' = 'Dim Neighbourhood'[Ward] IN CALCULATETABLE ( VALUES ( 'Security Ward Users'[Ward] ), 'Security Ward Users'[User Email] = USERPRINCIPALNAME () )

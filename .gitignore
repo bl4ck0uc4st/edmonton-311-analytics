@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Pipeline data (regenerate with `yeg311 run`) - keep folder markers and the committed sample
+data/raw/*
+!data/raw/.gitkeep
+data/warehouse/*
+!data/warehouse/.gitkeep
+data/exports/*
+!data/exports/.gitkeep
+
+# Power BI temp files
+*.pbix.tmp
+~$*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

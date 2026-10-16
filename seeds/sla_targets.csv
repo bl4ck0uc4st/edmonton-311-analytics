@@ -1,0 +1,34 @@
+service_area,service_category,target_days,basis
+Waste,Collection and Disposal Services,3,Illustrative: missed collection should be recovered within 3 days
+Roadway Maintenance,Animal Pick Up Request,3,Illustrative: deceased animal pick-up
+Roadway Maintenance,Potholes,30,Illustrative: City pothole repair commitment is weather dependent; 30 days used
+Roadway Maintenance,Maintenance - Snow and Ice,10,Illustrative: residential snow/ice service standard
+Roadway Maintenance,Litter,10,Illustrative
+Roadway Maintenance,Street Cleaning,14,Illustrative
+Roadway Maintenance,Maintenance - Sidewalk/Concrete,60,Illustrative: concrete repairs are seasonal
+Roadway Maintenance,,30,Illustrative default for Roadway Maintenance
+Parking Enforcement,Public Parking Complaints,7,Illustrative
+Parking Enforcement,Private Parking Complaints,7,Illustrative
+Parking Enforcement,,7,Illustrative default for Parking Enforcement
+Community Standards - Muni. Enforcement,Bylaw Complaints,30,Illustrative: bylaw investigation window
+Community Standards - Peace Officers,Bylaw Complaints,14,Illustrative
+Animal Control,Animal Complaints,21,Illustrative
+Transit,Off Schedule,14,Illustrative
+Transit,Maintenance - ETS,14,Illustrative
+Transit,,14,Illustrative default for Transit
+Traffic,Traffic Signals and Street Lights,21,Illustrative: street light outage response
+Traffic,Street Signs,21,Illustrative
+Traffic,,30,Illustrative default for Traffic
+Forestry,Broken Branch,14,Illustrative: hazard response
+Forestry,Pruning,180,Illustrative: pruning is programmed work
+Forestry,,60,Illustrative default for Forestry
+Parks,Turf,14,Illustrative
+Parks,Collection and Disposal Services-Garbage,7,Illustrative
+Parks,Graffiti,21,Illustrative
+Parks,,30,Illustrative default for Parks
+Park Rangers,Encampments,7,Illustrative
+Park Rangers,Wildlife,14,Illustrative
+Building and Mechanical,,14,Illustrative
+Development Services,,14,Illustrative
+Lot Grading,,30,Illustrative
+,,30,Global default when nothing more specific matches
