@@ -4,7 +4,7 @@ CREATE OR REPLACE TABLE gold.dim_date AS
 WITH bounds AS (
     SELECT
         date_trunc('year', min(created_at))::DATE                                   AS start_date,
-        (date_trunc('year', max(created_at)) + INTERVAL '2 years' - INTERVAL '1 day')::DATE AS end_date
+        (date_trunc('year', greatest(max(created_at), coalesce(max(closed_at), max(created_at)))) + INTERVAL '2 years' - INTERVAL '1 day')::DATE AS end_date
     FROM silver.requests
 ),
 days AS (

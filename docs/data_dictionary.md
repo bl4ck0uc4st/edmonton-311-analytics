@@ -122,6 +122,7 @@ Transaction fact: one row per 311 request with timings, SLA evaluation and forei
 | `backlog_age_bucket` | Backlog Age Bucket | string | 0-7 / 8-30 / 31-90 / 90+ days (open requests only) |
 | `resolution_bucket` | Resolution Bucket | string | Under 1 hour / Same day / 1-7 days / 8-30 / 31-90 / Over 90 |
 | `closed_before_created_flag` | Closed Before Created Flag (hidden) | boolean | Source close timestamp preceded creation (rejected) |
+| `open_with_close_timestamp_flag` | Open With Close Timestamp Flag (hidden) | boolean | Reported Open but the source carried a close timestamp (rejected) |
 | `request_count` | Request Count (hidden) | int64 | Always 1; convenience column |
 
 ## Fact Backlog Snapshot  (`fact_backlog_snapshot`)

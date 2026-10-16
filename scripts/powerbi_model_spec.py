@@ -308,6 +308,13 @@ TABLES: list[dict] = [
                 hidden=True,
             ),
             col(
+                "open_with_close_timestamp_flag",
+                "Open With Close Timestamp Flag",
+                BOOL,
+                "Reported Open but the source carried a close timestamp (rejected)",
+                hidden=True,
+            ),
+            col(
                 "request_count",
                 "Request Count",
                 INT,

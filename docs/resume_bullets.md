@@ -9,7 +9,7 @@ github.com/bl4ck0uc4st/edmonton-311-analytics
 
 * Python/Socrata API: built a monthly-partitioned, retrying extraction pipeline that pulls [3.5M] City of Edmonton 311 requests into Parquet, with incremental lookback refreshes and a manifest for auditability.
 * DuckDB/SQL: designed a Kimball star schema (transaction fact, daily backlog snapshot fact, 5 conformed dimensions) with versioned bronze/silver/gold transformations that clean, type and de-duplicate source data in under a minute per full rebuild.
-* Data quality: implemented 19 automated checks (uniqueness, referential integrity, cross-table reconciliation, freshness) with severity levels that gate publishing and surface on a dedicated report page.
+* Data quality: implemented 20 automated checks (uniqueness, referential integrity, cross-table reconciliation, freshness) with severity levels that gate publishing and surface on a dedicated report page.
 * Power BI: modelled 64 DAX measures (time intelligence, SLA attainment, end-of-period backlog via LASTNONBLANK, inactive-relationship USERELATIONSHIP patterns), row-level security by ward, a custom theme and a 5-page report; model defined as code in M/DAX/TMDL and generated from one spec.
 * CI/CD: GitHub Actions run lint, 24 tests and a pipeline smoke on every push, and a scheduled workflow refreshes live data weekly and publishes exports to a GitHub Release that Power BI reads directly.
 
@@ -25,7 +25,7 @@ I built a complete analytics platform on Edmonton's live 311 service-request dat
 problem the City, EPCOR or any utility deals with every day.
 
 What it does: a Python pipeline pulls ~3.5M requests from the City's open data API, DuckDB turns them into a
-star schema, 19 data-quality checks decide whether a build is good enough to publish, GitHub Actions refreshes it
+star schema, 20 data-quality checks decide whether a build is good enough to publish, GitHub Actions refreshes it
 every week, and a Power BI report (64 DAX measures, SLA tracking, backlog ageing, neighbourhood maps, row-level
 security) sits on top.
 

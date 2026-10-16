@@ -41,14 +41,25 @@ deduped AS (
         PARTITION BY request_id_raw
         ORDER BY closed_at_raw DESC NULLS LAST, created_at DESC
     ) = 1
+),
+statused AS (
+    SELECT
+        *,
+        coalesce(request_status, CASE WHEN closed_at_raw IS NULL THEN 'Open' ELSE 'Closed' END) AS request_status_final
+    FROM deduped
 )
 SELECT
     request_id,
     request_id_raw,
     created_at,
-    CASE WHEN closed_at_raw IS NOT NULL AND closed_at_raw < created_at THEN NULL ELSE closed_at_raw END AS closed_at,
+    CASE
+        WHEN request_status_final = 'Open' THEN NULL                      -- an open request has no valid close time
+        WHEN closed_at_raw IS NOT NULL AND closed_at_raw < created_at THEN NULL
+        ELSE closed_at_raw
+    END                                                                                               AS closed_at,
     (closed_at_raw IS NOT NULL AND closed_at_raw < created_at)                                        AS closed_before_created_flag,
-    coalesce(request_status, CASE WHEN closed_at_raw IS NULL THEN 'Open' ELSE 'Closed' END)           AS request_status,
+    (request_status_final = 'Open' AND closed_at_raw IS NOT NULL)                                     AS open_with_close_timestamp_flag,
+    request_status_final                                                                              AS request_status,
     status_detail,
     coalesce(service_area, 'Unclassified')                                                            AS service_area,
     coalesce(service_category, 'Unclassified')                                                        AS service_category,
@@ -64,4 +75,4 @@ SELECT
     ward_longitude,
     partition_year,
     partition_month
-FROM deduped;
+FROM statused;

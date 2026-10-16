@@ -22,6 +22,7 @@ let
         {"backlog_age_bucket", "Backlog Age Bucket"},
         {"resolution_bucket", "Resolution Bucket"},
         {"closed_before_created_flag", "Closed Before Created Flag"},
+        {"open_with_close_timestamp_flag", "Open With Close Timestamp Flag"},
         {"request_count", "Request Count"}
     }),
     Typed = Table.TransformColumnTypes(Renamed, {
@@ -46,6 +47,7 @@ let
         {"Backlog Age Bucket", type text},
         {"Resolution Bucket", type text},
         {"Closed Before Created Flag", type logical},
+        {"Open With Close Timestamp Flag", type logical},
         {"Request Count", Int64.Type}
     })
 in

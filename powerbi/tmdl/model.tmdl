@@ -686,6 +686,13 @@ createOrReplace
 			summarizeBy: none
 			sourceColumn: Closed Before Created Flag
 
+		/// Reported Open but the source carried a close timestamp (rejected)
+		column 'Open With Close Timestamp Flag'
+			dataType: boolean
+			isHidden
+			summarizeBy: none
+			sourceColumn: Open With Close Timestamp Flag
+
 		/// Always 1; convenience column
 		column 'Request Count'
 			dataType: int64
@@ -720,6 +727,7 @@ createOrReplace
 				        {"backlog_age_bucket", "Backlog Age Bucket"},
 				        {"resolution_bucket", "Resolution Bucket"},
 				        {"closed_before_created_flag", "Closed Before Created Flag"},
+				        {"open_with_close_timestamp_flag", "Open With Close Timestamp Flag"},
 				        {"request_count", "Request Count"}
 				    }),
 				    Typed = Table.TransformColumnTypes(Renamed, {
@@ -744,6 +752,7 @@ createOrReplace
 				        {"Backlog Age Bucket", type text},
 				        {"Resolution Bucket", type text},
 				        {"Closed Before Created Flag", type logical},
+				        {"Open With Close Timestamp Flag", type logical},
 				        {"Request Count", Int64.Type}
 				    })
 				in

@@ -96,9 +96,21 @@ CHECKS: tuple[Check, ...] = (
     ),
     Check(
         "open_rows_without_close_timestamp",
-        "Rows reported Open never carry a close timestamp",
+        "Rows reported Open never carry a close timestamp after cleaning",
         "critical",
         "SELECT count(*) FROM gold.fact_service_request WHERE NOT is_closed AND closed_at IS NOT NULL",
+    ),
+    Check(
+        "open_with_close_timestamp_pct",
+        "Share of Open rows (%) whose source carried a close timestamp (rejected in silver)",
+        "warning",
+        """
+        SELECT round(100.0 * count(*) FILTER (WHERE open_with_close_timestamp_flag)
+                     / nullif(count(*) FILTER (WHERE NOT is_closed), 0), 3)
+        FROM gold.fact_service_request
+        """,
+        threshold=5.0,
+        unit="%",
     ),
     Check(
         "closed_without_timestamp_pct",

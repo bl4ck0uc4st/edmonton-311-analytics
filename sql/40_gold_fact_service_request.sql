@@ -44,6 +44,7 @@ SELECT
         ELSE 'Over 90 days'
     END                                                                     AS resolution_bucket,
     r.closed_before_created_flag,
+    r.open_with_close_timestamp_flag,
     1                                                                       AS request_count
 FROM silver.requests r
 JOIN gold.dim_service s

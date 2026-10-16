@@ -8,7 +8,7 @@ open the file while you talk.
 
 "I built an end-to-end analytics platform on Edmonton's live 311 dataset, about 3.5 million service requests.
 A Python pipeline pulls the data from the City's Socrata API month by month, lands it as Parquet, and DuckDB
-transforms it into a star schema: a request fact, a daily backlog snapshot fact and five dimensions. Nineteen
+transforms it into a star schema: a request fact, a daily backlog snapshot fact and five dimensions. Twenty
 data-quality checks run after every build and block publishing if anything critical fails. GitHub Actions
 refreshes it weekly and publishes the exports to a release that Power BI reads directly. The Power BI side has
 64 DAX measures, time intelligence, an inactive relationship for closed-by-date analysis, row-level security by
